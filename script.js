@@ -1,214 +1,331 @@
-document.addEventListener("DOMContentLoaded", () => {
-    let isGenerating = false;
-
-    // Function to toggle the sidebar
-    function toggleSidebar() {
-        const sidebar = document.getElementById("sidebar");
-        if (sidebar) {
-            sidebar.classList.toggle("active");
-        }
-    }
-
-    // Event listener for the submit button in the prompt field
-    const submitButton = document.getElementById("submit");
-    if (submitButton) {
-        submitButton.addEventListener("click", () => {
-            if (!isGenerating) {
-                generateImage();
-            }
-        });
-    }
-
-    // Function to generate an image
-    function generateImage() {
-        const promptInput = document.getElementById("promptInput");
-        const prompt = promptInput ? promptInput.value : "";
-        const style = document.querySelector("#field1 .icon-btn.active")?.id || "";
-        const quality = document.querySelector("#field2 .icon-btn.active")?.id || "";
-        const size = document.querySelector("#field3 .icon-btn.active")?.id || "";
-        const guide = document.querySelector("#field4 .icon-btn.active")?.id || "";
-
-        if (prompt.trim() === "") {
-            alert("Please enter an image description.");
-            return;
-        }
-
-        const imageContainerCard1 = document.querySelector("#card1 .card1-image-container");
-        const loadingSpinnerCard1 = document.createElement("div");
-        loadingSpinnerCard1.className = "unique-loading-spinner";
-        imageContainerCard1.innerHTML = "";
-        imageContainerCard1.appendChild(loadingSpinnerCard1);
-
-        const imageContainerCard2 = document.querySelector("#card2 .card2-image-container");
-
-        const retryCount = 3;
-        const initialDelay = 1000;
-        let currentRetry = 0;
-
-        // Fetches image from the server and retries on failure
-        function fetchImageWithRetry() {
-            isGenerating = true;
-
-            fetch("https://afsimage.azurewebsites.net/api/httpTriggerts", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ prompt, style, quality, size }),
-            })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error("Network response was not ok");
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.imageUrls) {
-                        const url = data.imageUrls[0];
-                        loadImages(url, prompt, size, imageContainerCard1, imageContainerCard2);
-                    } else {
-                        handleImageError(imageContainerCard1);
-                    }
-                })
-                .catch(error => {
-                    console.error("Error generating image:", error);
-                    handleRetry(fetchImageWithRetry, currentRetry, retryCount, initialDelay, loadingSpinnerCard1, imageContainerCard1);
-                    currentRetry++;
-                })
-                .finally(() => {
-                    isGenerating = false;  // Reset the flag on completion
-                });
-        }
-
-        // Initial fetch attempt
-        fetchImageWithRetry();
-    }
-
-    // Loads the generated images into the containers
-    function loadImages(url, prompt, size, imageContainerCard1, imageContainerCard2) {
-        const imgCard1 = new Image();
-        const imgCard2 = new Image();
-        imgCard1.src = url;
-        imgCard2.src = url;
-        imgCard1.alt = prompt;
-        imgCard2.alt = prompt;
-        imgCard1.classList.add("card1-image");
-        imgCard2.classList.add("card2-image");
-
-        imgCard1.onload = () => {
-            updateImageContainers(imageContainerCard1, imgCard1);
-            updateImageContainers(imageContainerCard2, imgCard2);
-            handleSizeResize(size, url, imgCard1, imgCard2);
-        };
-    }
-
-    // Updates the image containers with new images
-    function updateImageContainers(container, image) {
-        if (container) {
-            container.innerHTML = "";
-            container.appendChild(image);
-        }
-    }
-
-    // Handles retries in case the fetch fails
-    function handleRetry(fetchImageFunc, currentRetry, retryCount, delay, loadingSpinnerCard1, imageContainerCard1) {
-        if (currentRetry < retryCount) {
-            const retryDelay = delay * Math.pow(2, currentRetry);
-            setTimeout(fetchImageFunc, retryDelay);
-        } else {
-            handleImageError(imageContainerCard1);
-        }
-    }
-
-    // Displays error message if image generation fails
-    function handleImageError(imageContainerCard1) {
-        if (imageContainerCard1) {
-            imageContainerCard1.innerHTML = `
-                <span style="
-                    color: #45474B; 
-                    font-weight: bold; 
-                    font-size: 60px; 
-                    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3); 
-                    background: -webkit-linear-gradient(#45474B, #6B6E73); 
-                    -webkit-background-clip: text; 
-                    -webkit-text-fill-color: transparent;
-                ">
-                    Failed to generate image. Please try again...
-                </span>`;
-        }
-    }
-
-    // Resizes the image based on selected size
-    function handleSizeResize(size, url, imgCard1, imgCard2) {
-        if (["Desktop", "Website", "Portrait", "Landscape"].includes(size)) {
-            let width, height;
-            switch (size) {
-                case "Desktop":
-                    [width, height] = [1600, 900];
-                    break;
-                case "Website":
-                    [width, height] = [1800, 600];
-                    break;
-                case "Portrait":
-                    [width, height] = [1080, 1920];
-                    break;
-                case "Landscape":
-                    [width, height] = [1920, 1080];
-                    break;
-            }
-            resizeImage(url, width, height).then(resizedUrl => {
-                imgCard1.src = resizedUrl;
-                imgCard2.src = resizedUrl;
-            }).catch(error => {
-                console.error("Error resizing image:", error);
-            });
-        }
-    }
-
-    // Resizes the image to the desired width and height
-    function resizeImage(url, width, height) {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.crossOrigin = "anonymous";
-            img.onload = () => {
-                const canvas = document.createElement("canvas");
-                const ctx = canvas.getContext("2d");
-
-                canvas.width = width;
-                canvas.height = height;
-
-                ctx.drawImage(img, 0, 0, width, height);
-
-                canvas.toBlob(blob => {
-                    if (blob) {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                            resolve(reader.result);
-                        };
-                        reader.readAsDataURL(blob);
-                    } else {
-                        reject(new Error("Failed to create a blob from the canvas."));
-                    }
-                }, "image/png");
-            };
-            img.onerror = reject;
-            img.src = url;
-        });
-    }
-
-    // Event listener for selecting active buttons
-    document.querySelectorAll(".icon-btn").forEach(button => {
-        button.addEventListener("click", function () {
-            const buttons = this.closest(".field").querySelectorAll(".icon-btn");
-            buttons.forEach(btn => btn.classList.remove("active"));
-            this.classList.add("active");
-        });
-    });
-
-    // Ensures buttons are added correctly and event listeners are attached
-    function appendButtons(imageContainer, buttons) {
-        buttons.forEach(button => {
-            imageContainer.appendChild(button);
-        });
-    }
-});
+// ----------------------  
+let currentImageUrl = ""; // Store the current generated image URL  
+  
+// Function to toggle the sidebar  
+function toggleSidebar() {  
+    document.getElementById("sidebar").classList.toggle("active");  
+}  
+  
+// Event listener for the submit button in the prompt field  
+document.getElementById("submit").addEventListener("click", generateImage);  
+  
+async function generateImage() {  
+    const promptInput = document.getElementById("promptInput");  
+    const prompt = promptInput.value;  
+    const style = document.querySelector("#field1 .icon-btn.active")?.id || "";  
+    const quality = document.querySelector("#field2 .icon-btn.active")?.id || "";  
+    const size = document.querySelector("#field3 .icon-btn.active")?.id || "";  
+  
+    if (prompt.trim() === "") {  
+        alert("Please enter an image description.");  
+        return;  
+    }  
+  
+    const imageContainerCard1 = document.querySelector("#card1 .card1-image-container");  
+    const loadingSpinnerCard1 = document.createElement("div");  
+    loadingSpinnerCard1.className = "unique-loading-spinner";  
+    imageContainerCard1.innerHTML = "";  
+    imageContainerCard1.appendChild(loadingSpinnerCard1);  
+  
+    const imageContainerCard2 = document.querySelector("#card2 .card2-image-container");  
+  
+    const retryCount = 3;  
+    const initialDelay = 1000;  
+  
+    generate.disabled = true; // Disable generate button  
+  
+    await fetchImageWithRetry(prompt, style, quality, size, imageContainerCard1, imageContainerCard2, loadingSpinnerCard1, retryCount, initialDelay);  
+  
+    generate.disabled = false; // Enable generate button  
+}  
+  
+async function fetchImageWithRetry(prompt, style, quality, size, imageContainerCard1, imageContainerCard2, loadingSpinnerCard1, retryCount, initialDelay, currentRetry = 0) {  
+    try {  
+        const response = await fetch("https://afsimage.azurewebsites.net/api/httpTriggerts", {  
+            method: "POST",  
+            headers: {  
+                "Content-Type": "application/json",  
+            },  
+            body: JSON.stringify({ prompt, style, quality, size })  
+        });  
+  
+        if (!response.ok) {  
+            throw new Error("Network response was not ok");  
+        }  
+  
+        const data = await response.json();  
+  
+        if (data.imageUrls) {  
+            const url = data.imageUrls[0];  
+            await handleImageLoad(url, prompt, size, imageContainerCard1, imageContainerCard2, loadingSpinnerCard1);  
+        } else {  
+            handleImageError(imageContainerCard1, loadingSpinnerCard1);  
+        }  
+    } catch (error) {  
+        console.error("Error generating image:", error);  
+        if (currentRetry < retryCount) {  
+            const delay = initialDelay * Math.pow(2, currentRetry);  
+            setTimeout(() => fetchImageWithRetry(prompt, style, quality, size, imageContainerCard1, imageContainerCard2, loadingSpinnerCard1, retryCount, initialDelay, currentRetry + 1), delay);  
+        } else {  
+            handleImageError(imageContainerCard1, loadingSpinnerCard1, true);  
+        }  
+    }  
+}  
+  
+async function handleImageLoad(url, prompt, size, imageContainerCard1, imageContainerCard2, loadingSpinnerCard1) {  
+    const imgCard1 = new Image();  
+    const imgCard2 = new Image();  
+    imgCard1.src = url;  
+    imgCard2.src = url;  
+    imgCard1.alt = prompt;  
+    imgCard2.alt = prompt;  
+    imgCard1.classList.add("card1-image");  
+    imgCard2.classList.add("card2-image");  
+  
+    imgCard1.onload = () => {  
+        loadingSpinnerCard1.remove();  
+        imageContainerCard1.innerHTML = "";  
+        imageContainerCard1.appendChild(imgCard1);  
+        appendButtons();  
+        recycleButton.disabled = false;  
+        deleteButton.disabled = false;  
+        currentImageUrl = imgCard1.src;  
+  
+        imageContainerCard2.innerHTML = "";  
+        imageContainerCard2.appendChild(imgCard2);  
+        appendCard3Buttons();  
+        updateCarouselImages(url);  
+    };  
+  
+    imgCard1.onerror = imgCard2.onerror = () => {  
+        handleImageError(imageContainerCard1, loadingSpinnerCard1);  
+    };  
+  
+    if (["Desktop", "Website", "Portrait", "Landscape"].includes(size)) {  
+        const dimensions = getImageDimensions(size);  
+        const resizedUrl = await resizeImage(url, dimensions.width, dimensions.height);  
+        imgCard1.src = resizedUrl;  
+        imgCard2.src = resizedUrl;  
+        updateCarouselImages(resizedUrl);  
+    }  
+}  
+  
+function getImageDimensions(size) {  
+    switch (size) {  
+        case "Desktop":  
+            return { width: 1600, height: 900 };  
+        case "Website":  
+            return { width: 1800, height: 600 };  
+        case "Portrait":  
+            return { width: 1080, height: 1920 };  
+        case "Landscape":  
+            return { width: 1920, height: 1080 };  
+        default:  
+            return { width: 0, height: 0 };  
+    }  
+}  
+  
+function handleImageError(imageContainerCard1, loadingSpinnerCard1, isRetryExceeded = false) {  
+    loadingSpinnerCard1.remove();  
+    imageContainerCard1.innerHTML = `  
+        <span style="  
+            color: #45474B;  
+            font-weight: bold;  
+            font-size: 60px;  
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);  
+            background: -webkit-linear-gradient(#45474B, #6B6E73);  
+            -webkit-background-clip: text;  
+            -webkit-text-fill-color: transparent;  
+        ">  
+            ${isRetryExceeded ? 'Failed to generate image after retries. Please try again later...' : 'Failed to generate image. Please try again...'}  
+        </span>`;  
+}  
+  
+function resizeImage(url, width, height) {  
+    return new Promise((resolve, reject) => {  
+        const img = new Image();  
+        img.crossOrigin = "anonymous";  
+        img.onload = () => {  
+            const canvas = document.createElement("canvas");  
+            const ctx = canvas.getContext("2d");  
+  
+            canvas.width = width;  
+            canvas.height = height;  
+  
+            ctx.drawImage(img, 0, 0, width, height);  
+  
+            canvas.toBlob(blob => {  
+                const reader = new FileReader();  
+                reader.onload = () => {  
+                    resolve(reader.result);  
+                };  
+                reader.readAsDataURL(blob);  
+            }, "image/png");  
+        };  
+        img.onerror = reject;  
+        img.src = url;  
+    });  
+}  
+  
+// Select the buttons  
+const recycleButton = document.getElementById('downloadButtonCard1');  
+const deleteButton = document.getElementById('deleteButtonCard1');  
+const downloadButton = document.getElementById('recycleButtonCard1');  
+const generate = document.getElementById('submit');  
+  
+const leftArrowButtonCard3 = document.getElementById('leftArrowButtonCard2');  
+const rightArrowButtonCard3 = document.getElementById('rightArrowButtonCard2');  
+const copyButtonCard3 = document.getElementById('downloadButtonCard2');  
+const deleteButtonCard3 = document.getElementById('deleteButtonCard2');  
+const downloadButtonCard3 = document.getElementById('copyButtonCard2');  
+  
+const card3ImageContainer = document.querySelector('.card2-image-container');  
+let card3Images = [];  
+let currentCard3ImageIndex = 0;  
+  
+recycleButton.disabled = true;  
+deleteButton.disabled = true;  
+  
+function appendButtons() {  
+    const imageContainer = document.querySelector("#card1 .card1-image-container");  
+    imageContainer.appendChild(recycleButton);  
+    imageContainer.appendChild(deleteButton);  
+    imageContainer.appendChild(downloadButton);  
+}  
+  
+function appendCard3Buttons() {  
+    const card3ImageContainer = document.querySelector(".card2-image-container");  
+    card3ImageContainer.appendChild(leftArrowButtonCard3);  
+    card3ImageContainer.appendChild(rightArrowButtonCard3);  
+    card3ImageContainer.appendChild(copyButtonCard3);  
+    card3ImageContainer.appendChild(deleteButtonCard3);  
+    card3ImageContainer.appendChild(downloadButtonCard3);  
+}  
+  
+document.querySelectorAll(".icon-btn").forEach(button => {  
+    button.addEventListener("click", function () {  
+        const buttons = this.closest(".field").querySelectorAll(".icon-btn");  
+        buttons.forEach(btn => btn.classList.remove("active"));  
+        this.classList.add("active");  
+    });  
+});  
+  
+downloadButton.addEventListener('click', () => {  
+    if (currentImageUrl) {  
+        const link = document.createElement('a');  
+        link.href = currentImageUrl;  
+        link.download = 'generated_image.png';  
+        link.target = '_blank';  
+        link.click();  
+    } else {  
+        alert("No image to download.");  
+    }  
+});  
+  
+deleteButton.addEventListener('click', () => {  
+    const imageContainer = document.querySelector("#card1 .card1-image-container");  
+    imageContainer.innerHTML = "";  
+    const sampleImage = new Image();  
+    sampleImage.src = "image1.png";  
+    sampleImage.alt = "Sample Image";  
+    sampleImage.classList.add("card2-image");  
+    imageContainer.appendChild(sampleImage);  
+    appendButtons();  
+    currentImageUrl = "";  
+});  
+  
+recycleButton.addEventListener('click', () => {  
+    if (currentImageUrl) {  
+        const card3Image = new Image();  
+        card3Image.src = currentImageUrl;  
+        card3Image.alt = "Previously Generated Image";  
+        card3Image.classList.add("card2-image");  
+  
+        card3Images.unshift(card3Image);  
+        displayCard3Image(0);  
+        generateImage();  
+        card3ImageContainer.scrollTop = 0;  
+    } else {  
+        alert("No image to regenerate.");  
+    }  
+});  
+  
+leftArrowButtonCard3.addEventListener('click', () => {  
+    if (card3Images.length > 0) {  
+        currentCard3ImageIndex = (currentCard3ImageIndex - 1 + card3Images.length) % card3Images.length;  
+        displayCard3Image(currentCard3ImageIndex);  
+    }  
+});  
+  
+rightArrowButtonCard3.addEventListener('click', () => {  
+    if (card3Images.length > 0) {  
+        currentCard3ImageIndex = (currentCard3ImageIndex + 1) % card3Images.length;  
+        displayCard3Image(currentCard3ImageIndex);  
+    }  
+});  
+  
+function displayCard3Image(index) {  
+    card3ImageContainer.innerHTML = "";  
+    if (card3Images.length > 0) {  
+        const img = card3Images[index];  
+        card3ImageContainer.appendChild(img);  
+        appendCard3Buttons();  
+    } else {  
+        const sampleImage = new Image();  
+        sampleImage.src = "image2.png";  
+        sampleImage.alt = "Sample Image";  
+        sampleImage.classList.add("card2-image");  
+        card3ImageContainer.appendChild(sampleImage);  
+        appendCard3Buttons();  
+    }  
+}  
+  
+downloadButtonCard3.addEventListener('click', () => {  
+    if (card3Images.length > 0 && currentCard3ImageIndex >= 0 && currentCard3ImageIndex < card3Images.length) {  
+        const link = document.createElement('a');  
+        link.href = card3Images[currentCard3ImageIndex].src;  
+        link.download = 'generated_image.png';  
+        link.target = '_blank';  
+        link.click();  
+    } else {  
+        alert("No image to download.");  
+    }  
+});  
+  
+deleteButtonCard3.addEventListener('click', () => {  
+    if (card3Images.length > 0 && currentCard3ImageIndex >= 0 && currentCard3ImageIndex < card3Images.length) {  
+        card3Images.splice(currentCard3ImageIndex, 1);  
+        currentCard3ImageIndex = Math.min(currentCard3ImageIndex, card3Images.length - 1);  
+        displayCard3Image(currentCard3ImageIndex);  
+    } else {  
+        alert("No image to delete.");  
+    }  
+});  
+  
+copyButtonCard3.addEventListener('click', () => {  
+    const promptText = document.getElementById('promptInput').value;  
+    if (promptText.trim() !== "") {  
+        navigator.clipboard.writeText(promptText)  
+            .then(() => alert("Prompt copied to clipboard successfully!"))  
+            .catch(err => console.error("Error copying prompt:", err));  
+    } else {  
+        alert("No prompt text to copy.");  
+    }  
+});  
+  
+document.getElementById('promptInput').addEventListener('keydown', function (event) {  
+    if (event.key === 'Enter') {  
+        document.getElementById('submit').click();  
+    }  
+});  
+  
+function updateCarouselImages(url) {  
+    const card3Image = new Image();  
+    card3Image.src = url;  
+    card3Image.alt = "Generated Image";  
+    card3Image.classList.add("card2-image");  
+  
+    card3Images.unshift(card3Image);  
+    currentCard3ImageIndex = 0;  
+    displayCard3Image(currentCard3ImageIndex);  
+}  
